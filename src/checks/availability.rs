@@ -1,13 +1,15 @@
 use std::sync::mpsc;
+use std::net::Ipv4Addr;
 
 use crate::models;
 use models::availability::{Status, URLAvailability};
 
-pub fn check_availability(url: String, tx: mpsc::Sender<URLAvailability>) {
+pub fn check_availability(ip: Ipv4Addr, port: u16, tx: mpsc::Sender<URLAvailability>) {
     std::thread::spawn(move || {
-        let request = reqwest::blocking::get(&url);
+        let request_url = format!("https://{}:{}", ip, port);
+        let request = reqwest::blocking::get(&request_url);
         let mut result = URLAvailability {
-            url: url,
+            url: format!("{}:{}", ip, port),
             status: Status::Offline,
         };
         match request {

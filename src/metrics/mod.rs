@@ -1,5 +1,3 @@
-pub mod availability;
-pub mod ha_role;
 pub mod subaccounts;
 pub mod connection_backends;
 pub mod performance_backends;

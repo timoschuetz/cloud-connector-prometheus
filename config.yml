@@ -1,0 +1,15 @@
+port = 9185
+
+[[connectors]]
+version = 0
+ip = '127.0.0.1'
+port = 8443
+username = 'Administrator'
+password = 'manage'
+
+[[connectors]]
+version = 1
+ip = '192.0.0.1'
+port = 8443
+username = 'Administrator'
+password = 'manage'
