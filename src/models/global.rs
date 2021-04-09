@@ -6,7 +6,7 @@ pub struct MyConfig {
     pub connectors: Vec<Instance>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Instance {
     pub version: u8,
     pub ip: Ipv4Addr,

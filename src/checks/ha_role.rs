@@ -1,17 +1,23 @@
 use crate::models;
 use models::ha_role::{HARole, HA};
+use models::global::Instance;
+use log::{info,warn,debug, error};
 use std::sync::mpsc;
 use std::net::Ipv4Addr;
 
-pub fn check_haRole(ip: Ipv4Addr, port: u16, username: String, password: String, tx: mpsc::Sender<HA>) {
+pub fn check_haRole(instance: Instance, tx: mpsc::Sender<HA>) {
     std::thread::spawn(move || {
-        let request_url = format!("https://{}:{}/api/v1/configuration/connector/haRole", ip, port);
+        let request_url = format!("https://{}:{}/api/v1/configuration/connector/haRole", instance.ip, instance.port);
         let client = reqwest::blocking::Client::builder().danger_accept_invalid_certs(true)
         .build();
 
+        // Clone username and password because instance will be moved by assining it to response
+        let username = instance.username.clone();
+        let password = instance.password.clone();
+
         let mut response = HA {
             role: HARole::Undefined,
-            url: format!("{}", ip),
+            instance,
         };
 
         match client {

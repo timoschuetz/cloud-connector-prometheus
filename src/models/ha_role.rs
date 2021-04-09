@@ -1,3 +1,6 @@
+use crate::models;
+use models::global::Instance;
+
 pub enum HARole {
     Master,
     Shadow,
@@ -6,5 +9,5 @@ pub enum HARole {
 
 pub struct HA {
     pub role: HARole,
-    pub url: String
+    pub instance: Instance
 }

@@ -78,7 +78,7 @@ fn main() {
 
     info!("Starting up");
 
-    // Initialize tunnel_state gauge
+    // Initialize availability gauge
     let availabilty: IntGaugeVec = register_int_gauge_vec!("scc_available", "check if instance is available",&["instance"]).expect("can not create gauge scc_available");
 
     let subacc_monitor: SubaccountMonitor = metrics::subaccounts::get_subaccount_metrics();
@@ -108,54 +108,73 @@ fn main() {
 
             // TODO: Pop non available instances out of check list
 
+            // Initialize a new empty vector which will only hold available instances to avoid running multiple checks agains unavaible ones
+            let mut available_instances: Vec<Instance> = Vec::new();
+
             for instance in &instances {
-                check_availability(instance.ip.clone(), instance.port.clone(), av_tx.clone());
+                check_availability(instance.clone(), av_tx.clone());
             }
 
 
             for line_res in av_rx.iter().take(size) {
                 match line_res.status {
                     Status::Available => {
-                        debug!("URL: {} - Available", line_res.url);
-                        availabilty.with_label_values(&[&line_res.url]).set(1);
+                        debug!("URL: {}:{} - Available", line_res.instance.ip, line_res.instance.port);
+                        // Setting available metric
+                        availabilty.with_label_values(&[&format!("{}", line_res.instance.ip)]).set(1);
+                        // Add instance to available instaces
+                        available_instances.push(line_res.instance);
                     },
                     Status::Offline => {
-                        debug!("URL: {} - Offline", line_res.url);
-                        availabilty.with_label_values(&[&line_res.url]).set(0);
+                        debug!("URL: {}:{} - Offline", line_res.instance.ip, line_res.instance.port);
+                        availabilty.with_label_values(&[&format!("{}", line_res.instance.ip)]).set(0);
                     }
                 }
             }
 
+            // Get size of available instances for ha_check
+            // If amount of available instances does not match with size of all instances, this will result in waiting for threads that did not spawn
+            let available_size = available_instances.len();
 
-            for instance in &instances {
-                check_haRole(instance.ip.clone(), instance.port.clone(), instance.username.clone(), instance.password.clone(), ha_tx.clone());
+            // Initialize a new empty vector which will only hold all master instances to avoid running multiple checks agains shadows which do not respond to these endpoints
+            let mut master_instances: Vec<Instance> = Vec::new();
+
+            for instance in &available_instances {
+                check_haRole(instance.clone(), ha_tx.clone());
             }
 
             subacc_monitor.harole_master.reset();
             subacc_monitor.harole_shadow.reset();
 
-            for line_res in ha_rx.iter().take(size) {
+            for line_res in ha_rx.iter().take(available_size) {
+                let url = format!("{}", line_res.instance.ip);
+
                 match line_res.role {
                     HARole::Master => {
-                        debug!("Server: {} - Master", line_res.url);
-                        subacc_monitor.harole_master.with_label_values(&[&line_res.url]).set(1);
+                        debug!("Server: {} - Master", url);
+                        subacc_monitor.harole_master.with_label_values(&[&url]).set(1);
+                        master_instances.push(line_res.instance);
                     },
                     HARole::Shadow => {
-                        debug!("Server: {} - Shadow", line_res.url);
-                        subacc_monitor.harole_master.with_label_values(&[&line_res.url]).set(0);
+                        debug!("Server: {} - Shadow", url);
+                        subacc_monitor.harole_master.with_label_values(&[&url]).set(0);
                     },
                     HARole::Undefined => {
-                        debug!("Server: {} - Undefined", line_res.url)
+                        debug!("Server: {} - Undefined", url)
                     },
                 }
             }
 
+            // Get size of master instances for upcoming checks
+            // If amount of master instances does not match with size of instances, this will result in waiting for threads that did not spawn
+            let master_size = master_instances.len();
 
-            for instance in &instances {
+
+            for instance in &master_instances {
                 check_subaccounts(instance.ip.clone(), instance.port.clone(), instance.username.clone(), instance.password.clone(), subaccount_tx.clone());
             }
 
-            for line_res in subaccount_rx.iter().take(size) {
+            for line_res in subaccount_rx.iter().take(master_size) {
                 match line_res.status {
                     models::subaccounts::SubaccountStatus::Exists => {
                         match line_res.payload {
@@ -195,11 +214,11 @@ fn main() {
                 
             }
 
-            for instance in &instances {
+            for instance in &master_instances {
                 check_backend_connections(instance.ip.clone(), instance.port.clone(), instance.username.clone(), instance.password.clone(), backend_connection_tx.clone());
             }
 
-            for line_res in backend_connection_rx.iter().take(size) {
+            for line_res in backend_connection_rx.iter().take(master_size) {
                 match line_res.payload {
                     Some(data) => {
                         info!("Got Backend Connection DATA");
@@ -217,11 +236,11 @@ fn main() {
                 }
             }
 
-            for instance in &instances {
+            for instance in &master_instances {
                 check_backend_performance(instance.ip.clone(), instance.port.clone(), instance.username.clone(), instance.password.clone(), backend_performance_tx.clone());
             }
 
-            for line_res in backend_performance_rx.iter().take(size) {
+            for line_res in backend_performance_rx.iter().take(master_size) {
                 match line_res.payload {
                     Some(data) => {
                         for subaccount in data.subaccounts {
@@ -238,11 +257,11 @@ fn main() {
                 }
             }
 
-            for instance in &instances {
+            for instance in &master_instances {
                 check_memory(instance.ip.clone(), instance.port.clone(), instance.username.clone(), instance.password.clone(), memory_tx.clone());
             }
 
-            for line_res in memory_rx.iter().take(size) {
+            for line_res in memory_rx.iter().take(master_size) {
                 match line_res.memory_info {
                     Some(data) => {
                             memory_monitor.memory_heap_total.with_label_values(&[&line_res.url.clone()]).set(data.cloud_connector_heap_kb.total);
@@ -263,11 +282,11 @@ fn main() {
                 }
             }
 
-            for instance in &instances {
+            for instance in &master_instances {
                 check_consumers(instance.ip.clone(), instance.port.clone(), instance.username.clone(), instance.password.clone(), toptimeconsumers_tx.clone());
             }
 
-            for line_res in toptimeconsumers_rx.iter().take(size) {
+            for line_res in toptimeconsumers_rx.iter().take(master_size) {
                 match line_res.payload {
                     Some(data) => {
                         for subaccount in data.subaccounts {

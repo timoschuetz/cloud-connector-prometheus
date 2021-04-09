@@ -1,9 +1,12 @@
+use crate::models;
+use models::global::Instance;
+
 pub enum Status {
     Available,
     Offline
 }
 
 pub struct URLAvailability {
-    pub url: String,
+    pub instance: Instance,
     pub status: Status
 }
